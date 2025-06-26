@@ -262,3 +262,101 @@ document.querySelectorAll('.calendar-row').forEach(row => {
     bindDragEvents(eventDiv, data.duration);
   });
 })
+
+
+cell.addEventListener('drop', e => {
+  e.preventDefault();
+
+  const droppedDate = cell.dataset.date;
+  const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+  const newStart = new Date(droppedDate);
+  const newEnd = new Date(newStart);
+  newEnd.setDate(newStart.getDate() + data.duration - 1);
+
+  fetch('move_event.php', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: new URLSearchParams({
+      event_id: data.eventId,
+      new_start: droppedDate,
+      new_end: newEnd.toISOString().slice(0, 10)
+    })
+  })
+  .then(res => res.json())
+  .then(response => {
+    if (!response.success) return alert("Move failed: " + response.message);
+
+    // Remove all old instances of the event
+    document.querySelectorAll(`#event-${data.eventId}`).forEach(e => e.remove());
+
+    const eventStart = new Date(droppedDate);
+    const eventEnd = new Date(eventStart);
+    eventEnd.setDate(eventStart.getDate() + data.duration - 1);
+
+    document.querySelectorAll('.calendar-row').forEach(row => {
+      const overlay = row.querySelector('.event-overlay-container');
+      const weekStartCell = row.querySelector('td[data-date]');
+      if (!weekStartCell) return;
+
+      const weekStart = new Date(weekStartCell.dataset.date);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+
+      // If event doesn't intersect with this row, skip
+      if (eventEnd < weekStart || eventStart > weekEnd) return;
+
+      const actualStart = eventStart < weekStart ? weekStart : eventStart;
+      const actualEnd = eventEnd > weekEnd ? weekEnd : eventEnd;
+
+      const offset = (normalize(actualStart) - normalize(weekStart)) / 86400000;
+      const spanDays = (normalize(actualEnd) - normalize(actualStart)) / 86400000 + 1;
+
+      const left = offset * 185.5;
+      const width = spanDays * 185.5;
+
+      // Handle overlapping lanes
+      const existing = overlay.querySelectorAll('.event-strip');
+      let lane = 0;
+      while (true) {
+        let conflict = false;
+        for (let strip of existing) {
+          if (parseFloat(strip.style.top) !== lane * 28) continue;
+          const l = parseFloat(strip.style.left);
+          const r = l + parseFloat(strip.style.width);
+          if (!(left + width <= l || left >= r)) {
+            conflict = true;
+            break;
+          }
+        }
+        if (!conflict) break;
+        lane++;
+      }
+
+      const top = lane * 28;
+      const titleEl = document.getElementById(`title-${data.eventId}`);
+      const titleText = titleEl ? titleEl.textContent : "Moved Event";
+
+      const newStrip = document.createElement('div');
+      newStrip.className = 'event-strip';
+      newStrip.id = `event-${data.eventId}`;
+      newStrip.setAttribute('draggable', 'true');
+      newStrip.title = titleText;
+      newStrip.style.cssText = `position:absolute;top:${top}px;left:${left}px;width:${width}px;`;
+
+      newStrip.innerHTML = `
+        <span class="event-text" id="title-${data.eventId}">${titleText}</span>
+        <span class="event-actions">
+          <button class="edit-btn" onclick="event.stopPropagation(); promptEditEvent(${data.eventId})"><i class="fa fa-pencil"></i></button>
+          <button class="dlt-btn" onclick="event.stopPropagation(); deleteEvent(${data.eventId})"><i class="fa fa-remove"></i></button>
+        </span>
+      `;
+
+      overlay.appendChild(newStrip);
+      bindDragEvents(newStrip, data.duration);
+    });
+  })
+  .catch(err => {
+    alert("Drop failed");
+    console.error(err);
+  });
+});
