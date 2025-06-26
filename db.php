@@ -187,3 +187,78 @@ document.querySelectorAll('.calendar-row').forEach(row => {
   overlay.appendChild(eventDiv);
   bindDragEvents(eventDiv, data.duration);
 });
+
+
+.then(response => {
+  if (!response.success) return alert("Move failed: " + response.message);
+
+  // Remove all old strips (maybe spanned multiple rows)
+  document.querySelectorAll(`#event-${data.eventId}`).forEach(e => e.remove());
+
+  const newStartDate = new Date(droppedDate);
+  const newEndDate = new Date(newStartDate);
+  newEndDate.setDate(newStartDate.getDate() + data.duration - 1);
+
+  // Loop through all rows to re-render the full span
+  document.querySelectorAll('.calendar-row').forEach(row => {
+    const overlay = row.querySelector('.event-overlay-container');
+    const weekStartCell = row.querySelector('td[data-date]');
+    if (!weekStartCell) return;
+
+    const weekStart = new Date(weekStartCell.dataset.date);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+
+    if (newEndDate < weekStart || newStartDate > weekEnd) return;
+
+    const actualStart = newStartDate < weekStart ? weekStart : newStartDate;
+    const actualEnd = newEndDate > weekEnd ? weekEnd : newEndDate;
+
+    const offsetDays = (normalize(actualStart) - normalize(weekStart)) / 86400000;
+    const duration = (normalize(actualEnd) - normalize(actualStart)) / 86400000 + 1;
+
+    const left = offsetDays * 185.5;
+    const width = duration * 185.5;
+
+    // Lane stacking
+    const existingStrips = overlay.querySelectorAll('.event-strip');
+    let laneIndex = 0;
+    while (true) {
+      let conflict = false;
+      for (let strip of existingStrips) {
+        let stripLeft = parseFloat(strip.style.left);
+        let stripWidth = parseFloat(strip.style.width);
+        let stripRight = stripLeft + stripWidth;
+        let newLeft = left;
+        let newRight = left + width;
+        let stripTop = parseFloat(strip.style.top);
+        if (stripTop !== laneIndex * 28) continue;
+        if (!(newRight <= stripLeft || newLeft >= stripRight)) {
+          conflict = true;
+          break;
+        }
+      }
+      if (!conflict) break;
+      laneIndex++;
+    }
+
+    const topOffset = laneIndex * 28;
+    const oldTitle = document.getElementById(`title-${data.eventId}`)?.textContent || 'Moved Event';
+
+    const eventDiv = document.createElement('div');
+    eventDiv.className = 'event-strip';
+    eventDiv.id = `event-${data.eventId}`;
+    eventDiv.setAttribute('draggable', 'true');
+    eventDiv.style.cssText = `position:absolute;top:${topOffset}px;left:${left}px;width:${width}px;`;
+    eventDiv.title = oldTitle;
+    eventDiv.innerHTML = `
+      <span class="event-text" id="title-${data.eventId}">${oldTitle}</span>
+      <span class="event-actions">
+        <button class="edit-btn" onclick="event.stopPropagation(); promptEditEvent(${data.eventId})"><i class="fa fa-pencil"></i></button>
+        <button class="dlt-btn" onclick="event.stopPropagation(); deleteEvent(${data.eventId})"><i class="fa fa-remove"></i></button>
+      </span>`;
+
+    overlay.appendChild(eventDiv);
+    bindDragEvents(eventDiv, data.duration);
+  });
+})
